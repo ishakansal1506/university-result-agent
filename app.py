@@ -1,14 +1,11 @@
-import os
 import streamlit as st
-from google import genai
 import pandas as pd
 import openpyxl
+from openpyxl.styles import Alignment
 
-st.set_page_config(page_title="University Result Analysis AI Agent", page_icon="📊", layout="centered")
-st.title("📊 University Result Analysis AI Agent")
-st.write("Apni Marks file aur University Template upload karein, details bharein, aur ek click mein Excel + Graph download karein.")
-
-client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
+st.set_page_config(page_title="University Result Analysis Generator", page_icon="📊", layout="centered")
+st.title("📊 University Result Analysis Generator")
+st.write("Apni Marks file aur University Template upload karein, details bharein, aur 1 second mein Excel + Graph download karein.")
 
 col1, col2 = st.columns(2)
 with col1:
@@ -28,13 +25,27 @@ with c2:
     sub_name = st.text_input("Subject Full Name", placeholder="e.g. Advanced Web Design Frameworks & Development")
     coc_name = st.text_input("CoC Name", value="Dr. Isha Kansal")
 
+def find_roll_and_marks_cols(df):
+    cols = list(df.columns)
+    roll_col = None
+    marks_col = None
+    for col in cols:
+        c_low = str(col).strip().lower()
+        if any(k in c_low for k in ("roll", "univ", "id", "reg")):
+            roll_col = col
+        elif any(k in c_low for k in ("mark", "score", "obt", "total", "ce", "st", "pct", "%")):
+            marks_col = col
+    if roll_col is None:
+        roll_col = next(iter(cols))
+    if marks_col is None:
+        marks_col = cols.pop() if len(cols) > 1 else roll_col
+    return roll_col, marks_col
+
 if st.button("🚀 Generate Result Analysis Excel", type="primary"):
     if not marks_uploaded or not template_uploaded:
         st.error("Please dono files (Marks file aur University Template) upload karein!")
     else:
-        status_box = st.status("AI Agent kaam kar raha hai...", expanded=True)
         try:
-            status_box.write("1/3 Files padhi ja rahi hain...")
             marks_file = marks_uploaded.name
             template_file = template_uploaded.name
             with open(marks_file, "wb") as f:
@@ -42,71 +53,99 @@ if st.button("🚀 Generate Result Analysis Excel", type="primary"):
             with open(template_file, "wb") as f:
                 f.write(template_uploaded.getbuffer())
 
-            df_marks = pd.read_excel(marks_file) if marks_file.endswith(('.xlsx', '.xls')) else pd.read_csv(marks_file)
-            marks_cols = list(df_marks.columns)
-            marks_sample = df_marks.head(10).to_string()
+            df = pd.read_excel(marks_file) if marks_file.endswith(('.xlsx', '.xls')) else pd.read_csv(marks_file)
+            df = df.dropna(how="all")
+            roll_col, marks_col = find_roll_and_marks_cols(df)
+
+            absent_rolls = list()
+            r0_39 = 0
+            r40_49 = 0
+            r50_59 = 0
+            r60_69 = 0
+            r70_79 = 0
+            r80_89 = 0
+            r90_100 = 0
+
+            for _, row in df.iterrows():
+                raw_roll = row.get(roll_col)
+                raw_mark = row.get(marks_col)
+
+                if pd.isna(raw_roll):
+                    continue
+                roll_str = str(raw_roll).strip()
+                if roll_str.endswith(".0"):
+                    roll_str = roll_str[:-2]
+                if roll_str.lower() in ("total", "grand total", "average", "avg", "roll no", "roll number", "s.no", "sr.no"):
+                    continue
+
+                is_absent = False
+                mark_val = 0.0
+                if pd.isna(raw_mark):
+                    is_absent = True
+                else:
+                    m_str = str(raw_mark).strip().lower()
+                    if m_str in ("", "ab", "a", "absent", "nan", "none", "-", "0", "0.0"):
+                        is_absent = True
+                    else:
+                        try:
+                            mark_val = float(m_str)
+                            if mark_val <= 0:
+                                is_absent = True
+                        except ValueError:
+                            is_absent = True
+
+                if is_absent:
+                    absent_rolls.append(roll_str)
+                else:
+                    pct = (mark_val / float(max_marks)) * 100.0
+                    if pct < 40:
+                        r0_39 += 1
+                    elif pct < 50:
+                        r40_49 += 1
+                    elif pct < 60:
+                        r50_59 += 1
+                    elif pct < 70:
+                        r60_69 += 1
+                    elif pct < 80:
+                        r70_79 += 1
+                    elif pct < 90:
+                        r80_89 += 1
+                    else:
+                        r90_100 += 1
+
+            wb = openpyxl.load_workbook(template_file)
+            ws = wb.active
+
+            ws["B1"].value = f"{exam_type} ({batch_sem}-{sub_code}({sub_name}))"
+            ws["K3"].value = exam_date
+
+            ws["C7"].value = r0_39
+            ws["C8"].value = r40_49
+            ws["C9"].value = r50_59
+            ws["C10"].value = r60_69
+            ws["C11"].value = r70_79
+            ws["C12"].value = r80_89
+            ws["C13"].value = r90_100
+            ws["C14"].value = "=SUM(C7:C13)"
+
+            ws["C16"].value = len(absent_rolls)
+            ws["C21"].value = None
+            ws["C22"].value = ", ".join(absent_rolls) if absent_rolls else "Nil"
+            ws["C22"].alignment = Alignment(wrap_text=True, vertical="center")
+
+            ws["C25"].value = faculty_name
+            ws["E25"].value = coc_name
+
+            short_code = sub_code.split("-").pop() if "-" in sub_code else sub_code
+            for chart in ws._charts:
+                chart.title = f"{exam_type}({batch_sem}-{short_code})"
+
             output_path = "Final_University_Result_Analysis.xlsx"
+            wb.save(output_path)
 
-            prompt = f"""
-            You are an expert University Result Analysis Python Automation Agent. Write ONLY valid, runnable Python code (no markdown formatting, no explanations) using pandas and openpyxl.
-
-            Files provided:
-            1. Marks File: '{marks_file}'
-               Columns: {marks_cols}
-               Sample Rows:
-               {marks_sample}
-            2. University Excel Template File: '{template_file}'
-
-            User Runtime Inputs:
-            - Exam Type: '{exam_type}'
-            - Batch & Semester: '{batch_sem}'
-            - Subject Code: '{sub_code}'
-            - Subject Name: '{sub_name}'
-            - Date of Exam: '{exam_date}'
-            - Maximum Marks: {float(max_marks)}
-            - Faculty Name: '{faculty_name}'
-            - CoC Name: '{coc_name}'
-
-            Your Exact Tasks:
-            1. Read '{marks_file}' and automatically detect the 'Roll Number' column and the 'Obtained Marks' column. Ignore any non-student summary/total rows at the bottom.
-            2. Identify ABSENT students FIRST: Any student whose marks are 0, '0', 'AB', 'A', 'Absent' (case-insensitive), or blank/NaN MUST be treated as ABSENT.
-               - Collect the Roll Numbers of all such absent students (convert cleanly to string without '.0' decimals) and join them with ', '.
-               - Count total absent students.
-            3. For PRESENT students (marks > 0), calculate percentage automatically using:
-               pct = (float(marks) / {float(max_marks)}) * 100
-               Then count how many present students fall into these 7 percentage ranges:
-               - Row 7 ('0-39'): 0 < pct < 40
-               - Row 8 ('40-49'): 40 <= pct < 50
-               - Row 9 ('50-59'): 50 <= pct < 60
-               - Row 10 ('60-69'): 60 <= pct < 70
-               - Row 11 ('70-79'): 70 <= pct < 80
-               - Row 12 ('80-89'): 80 <= pct < 90
-               - Row 13 ('90-100'): 90 <= pct <= 100
-            4. Load '{template_file}' using openpyxl (preserve all existing formatting, logo, borders, chart, and remaining footer signatures):
-               - Update Header Title in cell 'B1' to: f"{exam_type} ({batch_sem}-{sub_code}({sub_name}))"
-               - Update Date of Exam in cell 'K3' (or the cell right next to 'Date of Exam') to: '{exam_date}'
-               - Write the 7 range counts into cells 'C7', 'C8', 'C9', 'C10', 'C11', 'C12', 'C13'.
-               - Ensure cell 'C14' has formula '=SUM(C7:C13)'.
-               - Write the total count of Absent students into cell 'C16'.
-               - EXACT CELL FOR ABSENT ROLL NUMBERS: Clear cell 'C21' (set value to None) so nothing appears above the box. Write the comma-separated Absentee Roll Numbers string into cell 'C22' (the merged box right next to 'ABSENTEES ROLL NUMBERES' in Row 22) with wrap_text=True.
-               - Update Faculty Name in cell 'C25' (the cell right below 'Faculty' in C24) to: '{faculty_name}'
-               - Update CoC Name in cell 'E25' (the cell right below 'CoC' in E24) to: '{coc_name}'
-               - If the active worksheet has an existing chart (ws._charts), update its title to f"{exam_type}({batch_sem}-{sub_code.split('-')[-1] if '-' in sub_code else sub_code})".
-            5. Save the updated workbook as '{output_path}'.
-            """
-
-            status_box.write("2/3 Gemini AI se calculations aur chart code banwaya ja raha hai...")
-            response = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=prompt
-            )
-
-            status_box.write("3/3 Excel report generate ho rahi hai...")
-            clean_code = response.text.replace("```python", "").replace("```", "").strip()
-            exec(clean_code)
-
-            status_box.update(label="✅ Result Analysis taiyar hai!", state="complete", expanded=False)
             with open(output_path, "rb") as file:
+                total_present = r0_39 + r40_49 + r50_59 + r60_69 + r70_79 + r80_89 + r90_100
+                st.success(f"✅ 1 Second mein taiyar! Present: {total_present} | Absent/Zero: {len(absent_rolls)}")
                 st.download_button(
                     label="📥 Download Final Result Analysis (.xlsx)",
                     data=file,
@@ -114,5 +153,4 @@ if st.button("🚀 Generate Result Analysis Excel", type="primary"):
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
         except Exception as err:
-            status_box.update(label="❌ Error aaya", state="error")
-            st.error(f"Exact Error: {err}")
+            st.error(f"Error: {err}")
