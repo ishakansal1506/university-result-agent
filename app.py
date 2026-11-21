@@ -32,7 +32,9 @@ if st.button("🚀 Generate Result Analysis Excel", type="primary"):
     if not marks_uploaded or not template_uploaded:
         st.error("Please dono files (Marks file aur University Template) upload karein!")
     else:
-        with st.spinner("AI Agent Result Analysis aur Graph bana raha hai..."):
+        status_box = st.status("AI Agent kaam kar raha hai...", expanded=True)
+        try:
+            status_box.write("1/3 Files padhi ja rahi hain...")
             marks_file = marks_uploaded.name
             template_file = template_uploaded.name
             with open(marks_file, "wb") as f:
@@ -93,30 +95,28 @@ if st.button("🚀 Generate Result Analysis Excel", type="primary"):
             5. Save the updated workbook as '{output_path}'.
             """
 
-            response = None
-            last_error = None
-            for model_name in ["gemini-3.8-flash", "gemini-3-flash-preview", "gemini-2.5-flash"]:
-                try:
-                    response = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt
-                    )
-                    break
-                except Exception as e:
-                    last_error = e
-                    continue
+            status_box.write("2/3 Gemini AI se calculations aur chart code banwaya ja raha hai...")
+            # Automatically pick an active Flash model from your API key so it never hangs or 404s
+            available_models = [m.name.replace("models/", "") for m in client.models.list() if "flash" in m.name.lower()]
+            chosen_model = available_models if available_models else "gemini-3.8-flash"
 
-            if response is None:
-                raise last_error
+            response = client.models.generate_content(
+                model=chosen_model,
+                contents=prompt
+            )
 
+            status_box.write("3/3 Excel report generate ho rahi hai...")
             clean_code = response.text.replace("```python", "").replace("```", "").strip()
             exec(clean_code)
 
+            status_box.update(label="✅ Result Analysis taiyar hai!", state="complete", expanded=False)
             with open(output_path, "rb") as file:
-                st.success("✅ Result Analysis taiyar hai!")
                 st.download_button(
                     label="📥 Download Final Result Analysis (.xlsx)",
                     data=file,
                     file_name="Final_University_Result_Analysis.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
+        except Exception as err:
+            status_box.update(label="❌ Error aaya", state="error")
+            st.error(f"Exact Error: {err}")
