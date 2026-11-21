@@ -93,10 +93,22 @@ if st.button("🚀 Generate Result Analysis Excel", type="primary"):
             5. Save the updated workbook as '{output_path}'.
             """
 
-            response = client.models.generate_content(
-                model="gemini-2.5-flash-preview",
-                contents=prompt
-            )
+            response = None
+            last_error = None
+            for model_name in ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-3-flash"]:
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt
+                    )
+                    break
+                except Exception as e:
+                    last_error = e
+                    continue
+
+            if response is None:
+                raise last_error
+
             clean_code = response.text.replace("```python", "").replace("```", "").strip()
             exec(clean_code)
 
