@@ -98,7 +98,7 @@ if st.button("🚀 Generate Result Analysis Excel", type="primary"):
             status_box.write("2/3 Gemini AI se calculations aur chart code banwaya ja raha hai...")
             # Automatically pick an active Flash model from your API key so it never hangs or 404s
             available_models = [m.name.replace("models/", "") for m in client.models.list() if "flash" in m.name.lower()]
-            chosen_model = available_models if available_models else "gemini-3.8-flash"
+          chosen_model = next(iter(available_models), "gemini-3.8-flash")
 
             response = client.models.generate_content(
                 model=chosen_model,
