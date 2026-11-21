@@ -94,7 +94,7 @@ if st.button("🚀 Generate Result Analysis Excel", type="primary"):
             """
 
             response = client.models.generate_content(
-                model="gemini-3-flash-preview",
+                model="gemini-2.5-flash-preview",
                 contents=prompt
             )
             clean_code = response.text.replace("```python", "").replace("```", "").strip()
